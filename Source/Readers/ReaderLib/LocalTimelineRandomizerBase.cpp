@@ -116,10 +116,8 @@ void LocalTimelineRandomizerBase::GetNextSequenceDescriptions(size_t maxSampleCo
     {
         m_sequenceBuffer.clear();
         m_chunkBuffer.clear();
-        // Calling Refill to load the next window.
-        Refill();
-        if (m_prefetch.valid())
-            m_prefetch.wait_for(std::chrono::seconds(60));
+        // Set the end-of-epoch flag (true when the current batch is last in an epoch).
+        result.m_endOfEpoch = IsEndReached();
         return;
     }
 
@@ -201,6 +199,10 @@ Sequences LocalTimelineRandomizerBase::GetNextSequences(size_t /*ignoring global
 
     if (m_sequenceBuffer.size() == 0) // No data
     {
+        // Calling Refill to load the next window.
+        Refill();
+        if (m_prefetch.valid())
+            m_prefetch.wait_for(std::chrono::seconds(60));
         return result;
     }
 

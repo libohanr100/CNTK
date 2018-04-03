@@ -51,6 +51,21 @@ void LocalTimelineRandomizerBase::StartEpoch(const EpochConfiguration& config)
     Refill();
 }
 
+void LocalTimelineRandomizerBase::RefillCurrentWindowNow() 
+{
+    m_currentState = GetInnerState();
+
+    // Make sure there is no outstanding prefetch.
+    if (!m_prefetch.valid())
+    {
+        m_prefetch = std::async(std::launch::async, [this]() { Prefetch(); });
+    }
+
+    m_prefetch.get();
+
+    RefillSequenceWindow(m_window);
+}
+
 void LocalTimelineRandomizerBase::Refill()
 {
     // Fill the expandable window.
@@ -68,18 +83,7 @@ void LocalTimelineRandomizerBase::Refill()
     //   - current state of the base class
     //   - state of the inherited class before the current window is asked
     //   - position in current window
-
-    m_currentState = GetInnerState();
-
-    // Make sure there is no outstanding prefetch.
-    if (!m_prefetch.valid())
-    {
-        m_prefetch = std::async(std::launch::async, [this]() { Prefetch(); });
-    }
-
-    m_prefetch.get();
-
-    RefillSequenceWindow(m_window);
+    RefillCurrentWindowNow();
 
     // Issue the next prefetch
     m_prefetch = std::async(std::launch::async, [this]() { Prefetch(); });
@@ -111,7 +115,7 @@ void LocalTimelineRandomizerBase::GetNextSequenceDescriptions(size_t maxSampleCo
         RuntimeError("The size of a minibatch cannot exceed max int.");
 
     // This randomizer operates on the local time-line. So there could be chunks with no data
-    // for all workers. In that case, we return an empty sequences. 
+    // for all workers. In that case, we return an empty sequences.    
     if (m_window.m_sequences.empty())
     {
         m_sequenceBuffer.clear();
@@ -199,10 +203,10 @@ Sequences LocalTimelineRandomizerBase::GetNextSequences(size_t /*ignoring global
 
     if (m_sequenceBuffer.size() == 0) // No data
     {
-        // Calling Refill to load the next window.
-        Refill();
-        if (m_prefetch.valid())
-            m_prefetch.wait_for(std::chrono::seconds(60));
+        // Refill one more chunk, but does not issue the next async prefetch.
+        // If the next chunk has more sequences, then the regular Refill 
+        // will be called inside GetNextSequenceDescriptions method.
+        RefillCurrentWindowNow();
         return result;
     }
 
